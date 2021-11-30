@@ -5,6 +5,7 @@ from typing import NamedTuple
 import smtplib
 from email.message import EmailMessage
 from pycoingecko import CoinGeckoAPI
+import json
 
 class Registry:
     def __init__(self, filePath):
@@ -27,10 +28,12 @@ class Registry:
             return True
         return False
 
-
-class Token(NamedTuple):
-    name: str
-    symbol: str
+class Token:
+    def __init__(self, name, symbol):
+        self.name = name
+        self.symbol = symbol
+        self.marketCap = 0
+        self.exchanges= []
 
 def notifyByMail(subject, body):
     msg = EmailMessage()
@@ -74,17 +77,30 @@ def getNewListingFromGateIo():
 
     return newListingTokens
 
+def getTokenInfo(token):
+    coinGeckoAPI = CoinGeckoAPI()
+    try:
+        coins = coinGeckoAPI.get_coins_list()
+        for coin in coins:
+            if(coin["symbol"].casefold() == token.symbol.casefold() and coin["name"].casefold() == token.name.casefold()):
+                coinData = coinGeckoAPI.get_coin_by_id(coin["id"])
+                token.marketCap = coinData["market_data"]["market_cap"]["usd"]
+
+    except ValueError as ve:
+        print(ve)
+
 #getNewListingFromGateIo()
 registry = Registry("/home/seb/Workspace/ListingWatcher/gateio_annoucement.txt")
 newTokens = getNewListingFromGateIo()
 for token in newTokens:
     if(registry.append(token.symbol)):
         print(token.symbol + " added in registry")
+        getTokenInfo(token)
         newTokens.append(token)
+        print(token.marketCap)
 
-if(newTokens):
-    coinGeckoAPI = CoinGeckoAPI()
-    print(coinGeckoAPI.get_coin_by_id(newTokens[0].name))
+
+#if(newTokens):
     #notifyByMail("New currency listing announced on Gate.io", '\n'.join(newTokens))
 
 
