@@ -85,6 +85,7 @@ def getNewListingFromGateIo():
     return newListingTokens
 
 def getTokenInfo(token):
+    logger = logging.getLogger('root', level=logging.INFO)
     coinGeckoAPI = CoinGeckoAPI()
     try:
         coins = coinGeckoAPI.get_coins_list()
@@ -109,28 +110,57 @@ def getExchangeToBuyOn(token):
         if exchange.casefold() in map(str.casefold, myExchanges):
             return exchange
 
+def geckoToCcxtExchangeID(exchange):
+    return {
+        'gate': 'gateio',
+        'kucoin': 'kucoin',
+    }[exchange]
 
-if __name__ == '__main__':
+def getApiKey(exchange):
+    return {
+        'gateio': (os.getenv('GATEIO_K'), os.getenv('GATEIO_S'), ''),
+        'kucoin': (os.getenv('KUCOIN_K'), os.getenv('KUCOIN_S'), os.getenv('KUCOIN_P')),
+    }[exchange]
 
-    logging.config.fileConfig(fname='log.conf')
+def buy(exchange, symbol):
+    exchange = geckoToCcxtExchangeID(exchange)
     logger = logging.getLogger('root')
-    logger.debug('This is a debug message')
+    apiKey, secret, password = getApiKey(exchange)
+    ccxtExchange = getattr(ccxt, exchange)({'apiKey': apiKey, 'secret': secret, 'password': password})
+    ticker = ccxtExchange.fetch_ticker(symbol)
+    #buyOrder = ccxtExchange.create_limit_buy_order(symbol, 10, ticker['last']*1.03) # 100 usdt
+    #logger.info("Bought %s", symbol)
+    #logger.info(buyOrder)
+    profit = 10
+    ccxtExchange.create_limit_sell_order(symbol, 10, ticker['last']*(1 + profit/100) )# 100 usdt
+    
 
-    registry = Registry(os.getcwd() + '/gateio_annoucement.txt')
-    newTokens = []
-    for token in getNewListingFromGateIo():
-        if(registry.append(token.symbol)):
-            getTokenInfo(token)
-            newTokens.append(token)
-            logger.info(f'New listing found on gateio: %s', token)
+def run():
+    #    registry = Registry(os.getcwd() + '/gateio_annoucement.txt')
+#    newTokens = []
+#    for token in getNewListingFromGateIo():
+#        if(registry.append(token.symbol)):
+#            getTokenInfo(token)
+#            newTokens.append(token)
+#            logger.info(f'New listing found on gateio: %s', token)
+#
+#    if(newTokens):
+#        for token in newTokens:
+#            exchange = getExchangeToBuyOn(token)
+#            if exchange:
+#                logger.info("I should buy here: %s", exchange)
 
-    if(newTokens):
-        for token in newTokens:
-            exchange = getExchangeToBuyOn(token)
-            if exchange:
-                logger.info("I should buy here: %s", exchange)
-
+    buy('kucoin', 'XRP/USDT')
     #if(newTokens):
         #notifyByMail("New currency listing announced on Gate.io", '\n'.join(newTokens))
+
+if __name__ == '__main__':
+    logging.config.fileConfig(fname='log.conf')
+    logger = logging.getLogger('root')
+
+    try:
+        run()
+    except  Exception as e:
+        logger.exception(e, exc_info=True)
 
 
