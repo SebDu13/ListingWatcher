@@ -9,6 +9,7 @@ from pycoingecko import CoinGeckoAPI
 import logging
 import logging.config
 import ccxt
+from ListingTracker import getNewListingFrom
 
 class Registry:
     def __init__(self, filePath):
@@ -39,7 +40,7 @@ class Token:
         self.exchanges= []
         
     def __repr__(self):
-        return "<Token name:%s symbol:%s marketCap:%s exchanges:%s>" % (self.name, self.symbol, self.marketCap, self.exchanges)
+        return f"<Token name:{self.name} symbol:{self.symbol} marketCap:{self.marketCap} exchanges:{self.exchanges}>"
 
 def notifyByMail(subject, body):
     msg = EmailMessage()
@@ -136,23 +137,29 @@ def buy(exchange, symbol):
     
 
 def run():
-    #    registry = Registry(os.getcwd() + '/gateio_annoucement.txt')
-#    newTokens = []
-#    for token in getNewListingFromGateIo():
-#        if(registry.append(token.symbol)):
-#            getTokenInfo(token)
-#            newTokens.append(token)
-#            logger.info(f'New listing found on gateio: %s', token)
+    #registry = Registry(os.path.join(os.getcwd(), 'gateio_annoucement.txt'))
+    #newTokens = []
+    #for token in getNewListingFromGateIo():
+    #    if(registry.append(token.symbol)):
+    #        getTokenInfo(token)
+    #        newTokens.append(token)
+    #        logger.info(f'New listing found on gateio: {token}')
 #
-#    if(newTokens):
-#        for token in newTokens:
-#            exchange = getExchangeToBuyOn(token)
-#            if exchange:
-#                logger.info("I should buy here: %s", exchange)
+    #if(newTokens):
+    #    for token in newTokens:
+    #        exchange = getExchangeToBuyOn(token)
+    #        if exchange:
+    #            logger.info(f"I should buy here: {exchange}")
 
-    buy('kucoin', 'XRP/USDT')
+    #buy('kucoin', 'XRP/USDT')
     #if(newTokens):
         #notifyByMail("New currency listing announced on Gate.io", '\n'.join(newTokens))
+
+     for newToken in getNewListingFrom("binance"):
+        logger.info(f"New listing planned on Binance: {newToken}")
+    
+     for newToken in getNewListingFrom("gateio"):
+        logger.info(f"New listing planned on Gateio: {newToken}")
 
 if __name__ == '__main__':
     logging.config.fileConfig(fname='log.conf')
