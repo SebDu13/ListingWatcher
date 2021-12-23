@@ -1,7 +1,5 @@
-import requests
 import os
 from bs4 import BeautifulSoup
-import re
 from typing import NamedTuple
 import smtplib
 from email.message import EmailMessage
@@ -9,38 +7,30 @@ from pycoingecko import CoinGeckoAPI
 import logging
 import logging.config
 import ccxt
-from ListingTracker import getNewListingFrom
+from ListingTracker import getExchangeTracker
+import threading
+import time
 
-class Registry:
-    def __init__(self, filePath):
-        self.file = open(filePath, 'a+')
+
+class ThreadTrackerBot(threading.Thread):
+    def __init__(self, exchangeTracker):
+        super(ThreadTrackerBot, self).__init__()
+        self.exchangeTracker = exchangeTracker
+        self.stopFlag = False
+        self.name = "Thread-"+ self.exchangeTracker.getExchangeName() # Thread name
     
-    def __del__(self):
-        self.file.close()
+    def stop(self):
+        self.stopFlag = True
 
-    def isNotListed(lines, entry):
-        for line in lines:
-            if line == entry:
-                return False
-        return True
-
-    def append(self, entry):
-        self.file.seek(0)
-        entry += "\n"
-        if(Registry.isNotListed(self.file.readlines(), entry)):
-            self.file.writelines(entry)
-            return True
-        return False
-
-class Token:
-    def __init__(self, name, symbol):
-        self.name = name
-        self.symbol = symbol
-        self.marketCap = 0
-        self.exchanges= []
-        
-    def __repr__(self):
-        return f"<Token name:{self.name} symbol:{self.symbol} marketCap:{self.marketCap} exchanges:{self.exchanges}>"
+    def run(self):
+        while not self.stopFlag:
+            t = time.time()
+            newListingTokens = self.exchangeTracker.getNewListing()
+            for newToken in newListingTokens:
+                logger.info(f"New listing planned on {self.exchangeTracker.getExchangeName()}: {newToken}")
+                #buy("gateio", newToken.symbol + "/USDT")
+            elapsed_time = time.time() - t
+            #logger.info(f"getNewListing() execution time: {elapsed_time}")
 
 def notifyByMail(subject, body):
     msg = EmailMessage()
@@ -55,35 +45,6 @@ def notifyByMail(subject, body):
         s.ehlo()
         s.login(msg['From'], "crypto123")
         s.send_message(msg)
-
-def findToken(title):
-    if(title.find('Listing Vote') != -1):
-        #print(title)
-        tokenName = re.search(' \- (.+?) \(', title)
-        #print(tokenName)
-        tokenSymbol = re.search('\((.+?)\)', title)
-        #print(tokenSymbol)
-        if(tokenName and tokenSymbol):
-            return Token(tokenName.group(1), tokenSymbol.group(1))
-    return None
-
-# what we are searching:
-# </div>, <div class="entry">
-# <a href="/article/23970" target="_blank" title="Gate.io Listing Vote #236 - Kadena (KDA), ＄13,000 KDA Giveaway 26381">
-# Supposed to return Kadena KDA
-def getNewListingFromGateIo():
-    link = "https://www.gateio.pro/articlelist/ann/2"
-    soup = BeautifulSoup(requests.get(link).text, 'html.parser')
-    entries = soup.find_all('div', {'class' : 'entry'})
-    newListingTokens = []
-
-    for entry in entries:
-        title = entry.find('a')["title"]
-        token = findToken(title)
-        if(token):
-            newListingTokens.append(token)
-
-    return newListingTokens
 
 def getTokenInfo(token):
     logger = logging.getLogger('root', level=logging.INFO)
@@ -124,50 +85,45 @@ def getApiKey(exchange):
     }[exchange]
 
 def buy(exchange, symbol):
-    exchange = geckoToCcxtExchangeID(exchange)
+    #ccxt.hitbtc({'verbose': True}).create_limit_buy_order
+    #exchange = geckoToCcxtExchangeID(exchange)
     logger = logging.getLogger('root')
     apiKey, secret, password = getApiKey(exchange)
     ccxtExchange = getattr(ccxt, exchange)({'apiKey': apiKey, 'secret': secret, 'password': password})
     ticker = ccxtExchange.fetch_ticker(symbol)
-    #buyOrder = ccxtExchange.create_limit_buy_order(symbol, 10, ticker['last']*1.03) # 100 usdt
-    #logger.info("Bought %s", symbol)
-    #logger.info(buyOrder)
-    profit = 10
-    ccxtExchange.create_limit_sell_order(symbol, 10, ticker['last']*(1 + profit/100) )# 100 usdt
+    buyOrder = ccxtExchange.create_limit_buy_order(symbol, 10, ticker['last']*1.20)
+    log = f"Bought {symbol} for 10 usdt on {exchange}"
+    logger.info(log)
+    logger.info(buyOrder)
+    notifyByMail(log, buyOrder)
+
+    #profit = 10
+    #ccxtExchange.create_limit_sell_order(symbol, 10, ticker['last']*(1 + profit/100) )# 100 usdt
     
 
 def run():
-    #registry = Registry(os.path.join(os.getcwd(), 'gateio_annoucement.txt'))
-    #newTokens = []
-    #for token in getNewListingFromGateIo():
-    #    if(registry.append(token.symbol)):
-    #        getTokenInfo(token)
-    #        newTokens.append(token)
-    #        logger.info(f'New listing found on gateio: {token}')
-#
-    #if(newTokens):
-    #    for token in newTokens:
-    #        exchange = getExchangeToBuyOn(token)
-    #        if exchange:
-    #            logger.info(f"I should buy here: {exchange}")
+    try:
+        bots = [ThreadTrackerBot(getExchangeTracker("binance"))
+        , ThreadTrackerBot(getExchangeTracker("binancebis"))]
+        
+        for bot in bots:
+            bot.start()
 
-    #buy('kucoin', 'XRP/USDT')
-    #if(newTokens):
-        #notifyByMail("New currency listing announced on Gate.io", '\n'.join(newTokens))
+        for bot in bots:
+            bot.join()
 
-     for newToken in getNewListingFrom("binance"):
-        logger.info(f"New listing planned on Binance: {newToken}")
-    
-     for newToken in getNewListingFrom("gateio"):
-        logger.info(f"New listing planned on Gateio: {newToken}")
+    except  Exception as e:
+        logger.exception(e, exc_info=True)
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt")
+        for bot in bots:
+            bot.stop()
+        pass
 
 if __name__ == '__main__':
     logging.config.fileConfig(fname='log.conf')
     logger = logging.getLogger('root')
+    run()
 
-    try:
-        run()
-    except  Exception as e:
-        logger.exception(e, exc_info=True)
 
 
